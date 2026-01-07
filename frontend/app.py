@@ -109,3 +109,28 @@ with st.form("create_ticket"):
             st.error(res.text)
 
 
+
+st.header("➕ Create Customer")
+
+with st.form("create_customer"):
+    name = st.text_input("Name")
+    email = st.text_input("Email")
+    company = st.text_input("Company")
+
+    submitted = st.form_submit_button("Create Customer")
+
+    if submitted:
+        payload = {
+   
+            "name": name,
+            "email": email,
+            "company": company
+        }
+
+        res = requests.post(f"{BASE_URL}/customers", json=payload)
+
+        if res.status_code == 201:
+            st.success("Customer created successfully")
+            st.rerun()   # 🔥 refresh dashboard + tickets
+        else:
+            st.error(res.text)
