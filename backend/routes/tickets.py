@@ -1,0 +1,235 @@
+from flask import Blueprint, request, jsonify
+from pydantic import ValidationError
+from schemas.ticket import TicketCreate
+from db import get_db_connection
+from redis_client import delete_cached 
+tickets_bp = Blueprint("tickets", __name__)
+
+@tickets_bp.route("/tickets", methods=["POST"])
+def create_ticket():
+    """
+    Create a new support ticket
+    ---
+    tags:
+      - Tickets
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          required:
+            - customer_id
+            - title
+            - priority
+          properties:
+            customer_id:
+              type: integer
+              example: 1
+            title:
+              type: string
+              example: Login not working
+            description:
+              type: string
+              example: User cannot log in since yesterday
+            priority:
+              type: string
+              enum: [LOW, MEDIUM, HIGH]
+    responses:
+      201:
+        description: Ticket created
+      400:
+        description: Validation error
+      404:
+        description: Customer not found
+      500:
+        description: Internal server error
+    """
+    try:
+        data = TicketCreate(**request.json)
+
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+
+        # 1️⃣ Check customer exists
+        cursor.execute(
+            "SELECT id FROM customers WHERE id = %s",
+            (data.customer_id,)
+        )
+        customer = cursor.fetchone()
+
+        if not customer:
+            return jsonify({"error": "Customer not found"}), 404
+
+        # 2️⃣ Insert ticket
+        cursor.execute("""
+            INSERT INTO tickets (customer_id, title, description, priority)
+            VALUES (%s, %s, %s, %s)
+        """, (
+            data.customer_id,
+            data.title,
+            data.description,
+            data.priority
+        ))
+
+        conn.commit()   # ✅ ticket is now saved
+
+        # INVALIDATE DASHBOARD CACHE (THIS IS THE LINE)
+        delete_cached("dashboard:summary")
+
+        return jsonify({"message": "Ticket created"}), 201
+
+    except ValidationError as e:
+        return jsonify({"error": e.errors()}), 400
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+    finally:
+        if 'cursor' in locals():
+            cursor.close()
+            conn.close()
+
+@tickets_bp.route("/tickets", methods=["GET"])
+def get_tickets():
+    """
+    Get tickets with optional filters
+    ---
+    tags:
+      - Tickets
+    parameters:
+      - name: status
+        in: query
+        type: string
+        enum: [OPEN, IN_PROGRESS, CLOSED]
+      - name: priority
+        in: query
+        type: string
+        enum: [LOW, MEDIUM, HIGH]
+      - name: customer_id
+        in: query
+        type: integer
+    responses:
+      200:
+        description: List of tickets
+      400:
+        description: Invalid query parameters
+      500:
+        description: Internal server error
+    """
+    try:
+        status = request.args.get("status")
+        priority = request.args.get("priority")
+        customer_id = request.args.get("customer_id")
+
+        query = """
+            SELECT id, customer_id, title, priority, status, created_at
+            FROM tickets
+            WHERE 1=1
+        """
+        params = []
+
+        if status:
+            query += " AND status = %s"
+            params.append(status)
+
+        if priority:
+            query += " AND priority = %s"
+            params.append(priority)
+
+        if customer_id:
+            query += " AND customer_id = %s"
+            params.append(customer_id)
+
+        query += " ORDER BY created_at DESC"
+
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute(query, tuple(params))
+
+        tickets = cursor.fetchall()
+        return jsonify(tickets), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+    finally:
+        if 'cursor' in locals():
+            cursor.close()
+            conn.close()
+
+
+
+from typing import Literal
+
+@tickets_bp.route("/tickets/<int:ticket_id>/status", methods=["PUT"])
+def update_ticket_status(ticket_id):
+    """
+    Update ticket status
+    ---
+    tags:
+      - Tickets
+    parameters:
+      - name: ticket_id
+        in: path
+        type: integer
+        required: true
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          properties:
+            status:
+              type: string
+              enum: [OPEN, IN_PROGRESS, CLOSED]
+    responses:
+      200:
+        description: Status updated
+      400:
+        description: Bad request
+      404:
+        description: Ticket not found
+    """
+    try:
+        body = request.json
+        new_status = body.get("status")
+
+        if new_status not in ["OPEN", "IN_PROGRESS", "CLOSED"]:
+            return jsonify({"error": "Invalid status"}), 400
+
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+
+        # Check ticket exists
+        cursor.execute("SELECT status FROM tickets WHERE id = %s", (ticket_id,))
+        ticket = cursor.fetchone()
+
+        if not ticket:
+            return jsonify({"error": "Ticket not found"}), 404
+
+        # Optional rule: don't reopen closed ticket
+        if ticket["status"] == "CLOSED" and new_status != "CLOSED":
+            return jsonify({"error": "Closed tickets cannot be reopened"}), 400
+
+        # Update status
+        cursor.execute("""
+            UPDATE tickets
+            SET status = %s
+            WHERE id = %s
+        """, (new_status, ticket_id))
+
+        conn.commit()
+
+        # Invalidate dashboard cache
+        delete_cached("dashboard:summary")
+
+        return jsonify({"message": "Status updated"}), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+    finally:
+        if 'cursor' in locals():
+            cursor.close()
+            conn.close()
