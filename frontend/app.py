@@ -88,7 +88,7 @@ else:  # agent
 # DASHBOARD
 # -------------------------------
 if menu == "Dashboard":
-    st.header("📊 Dashboard Summary")
+    st.header("Dashboard Summary")
     try:
         res = requests.get(f"{BASE_URL}/dashboard/summary", headers=headers)
         res.raise_for_status()
