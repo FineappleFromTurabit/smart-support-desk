@@ -3,8 +3,10 @@ from pydantic import ValidationError
 from schemas.ticket import TicketCreate
 from db import get_db_connection
 from redis_client import delete_cached 
-tickets_bp = Blueprint("tickets", __name__)
+from routes.auth_middleware import auth_required
 
+tickets_bp = Blueprint("tickets", __name__)
+@auth_required
 @tickets_bp.route("/tickets", methods=["POST"])
 def create_ticket():
     """
@@ -72,7 +74,7 @@ def create_ticket():
             data.priority
         ))
 
-        conn.commit()   # ✅ ticket is now saved
+        conn.commit()   #  ticket is now saved
 
         # INVALIDATE DASHBOARD CACHE (THIS IS THE LINE)
         delete_cached("dashboard:summary")
