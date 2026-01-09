@@ -4,9 +4,17 @@ import requests
 BASE_URL = "http://127.0.0.1:5000"
 st.set_page_config(page_title="Smart Support Desk", layout="wide")
 
+# -------------------------------
 # Session State Setup
+# -------------------------------
 if "token" not in st.session_state:
     st.session_state.token = None
+
+if "role" not in st.session_state:
+    st.session_state.role = None
+
+if "user" not in st.session_state:
+    st.session_state.user = None
 
 # Title
 st.title("🎧 Smart Support Desk")
@@ -28,8 +36,10 @@ if not st.session_state.token:
                 res = requests.post(f"{BASE_URL}/login",
                                     json={"email": email, "password": password})
                 if res.status_code == 200:
-                    st.session_state.token = res.json()["token"]
-                    st.session_state.user = res.json()["user"]
+                    data = res.json()
+                    st.session_state.token = data["token"]
+                    st.session_state.user = data["user"]
+                    st.session_state.role = data["user"]["role"]
                     st.success("Login successful!")
                     st.rerun()
                 else:
@@ -58,9 +68,8 @@ if not st.session_state.token:
         st.stop()
 
 # -------------------------------
-# If logged in, show menu
+# Sidebar: logged in user info + menu
 # -------------------------------
-# st.sidebar.success("Logged in")
 st.sidebar.success(f"Logged in as {st.session_state.user['name']} ({st.session_state.user['role']})")
 
 if st.sidebar.button("Logout"):
@@ -68,21 +77,18 @@ if st.sidebar.button("Logout"):
     st.rerun()
 
 headers = {"Authorization": f"Bearer {st.session_state.token}"}
+role = st.session_state.role
 
-role = st.session_state.user["role"]
-
-if role == "admin":
+if role.upper() == "ADMIN":
     menu = st.sidebar.radio(
         "📌 Select Page",
-        ["Dashboard", "Tickets", "Create Ticket", "Customers", "Create Customer"]
+        ["Dashboard", "Tickets", "Create Ticket", "Customers", "Create Customer", "Assign Ticket"]
     )
-else:  # agent
+else:  # AGENT
     menu = st.sidebar.radio(
         "📌 Select Page",
-        ["Dashboard", "Tickets", "Create Ticket","Customers"
-        ]
+        ["Dashboard", "Tickets", "Create Ticket", "Customers"]
     )
-
 
 # -------------------------------
 # DASHBOARD
@@ -119,8 +125,16 @@ elif menu == "Tickets":
     priority = st.selectbox("Priority", ["All", "LOW", "MEDIUM", "HIGH"])
 
     params = {}
-    if status != "All": params["status"] = status
-    if priority != "All": params["priority"] = priority
+
+    # Agent sees only own tickets
+    if role.upper() == "AGENT":
+        params["assigned_to"] = st.session_state.user["id"]
+
+    # Filters
+    if status != "All":
+        params["status"] = status
+    if priority != "All":
+        params["priority"] = priority
 
     try:
         res = requests.get(f"{BASE_URL}/tickets", params=params, headers=headers)
@@ -176,9 +190,6 @@ elif menu == "Create Ticket":
 # LIST CUSTOMERS
 # -------------------------------
 elif menu == "Customers":
-    if role != "admin":
-        st.error("Access denied: Admin only")
-        st.stop()
     st.header("👥 Customers")
     try:
         res = requests.get(f"{BASE_URL}/customers", headers=headers)
@@ -191,9 +202,6 @@ elif menu == "Customers":
 # CREATE CUSTOMER
 # -------------------------------
 elif menu == "Create Customer":
-    if role != "admin":
-        st.error("Access denied")
-        st.stop()
     st.header("🏢 Create Customer")
     with st.form("cust_form"):
         name = st.text_input("Name")
@@ -210,3 +218,34 @@ elif menu == "Create Customer":
                 st.rerun()
             else:
                 st.error(r.text)
+
+# -------------------------------
+# ASSIGN TICKET TO AGENT (admin only)
+# -------------------------------
+elif menu == "Assign Ticket":
+    if role.upper() == "ADMIN":
+        st.subheader("Assign Ticket to Agent")
+
+        ticket_id_sel = st.number_input("Ticket ID to Assign", min_value=1)
+
+        agents_res = requests.get(f"{BASE_URL}/users?role=agent", headers=headers)
+        agents = agents_res.json() if agents_res.status_code == 200 else []
+
+        if agents:
+            agent_dict = {a["name"]: a["id"] for a in agents}
+            agent_name = st.selectbox("Assign To", list(agent_dict.keys()))
+            assigned_to_id = agent_dict[agent_name]
+
+            if st.button("Assign Ticket"):
+                res = requests.put(
+                    f"{BASE_URL}/tickets/{ticket_id_sel}/assign",
+                    json={"assigned_to": assigned_to_id},
+                    headers=headers
+                )
+                if res.status_code == 200:
+                    st.success("Ticket assigned")
+                    st.rerun()
+                else:
+                    st.error(res.text)
+        else:
+            st.info("No agents available")

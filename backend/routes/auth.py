@@ -5,9 +5,9 @@ from schemas.user import UserRegister, UserLogin
 from pydantic import ValidationError
 import jwt
 import datetime
-from dotenv import load_dotenv
 import os
-
+from .auth_middleware import admin_required
+from dotenv import load_dotenv
 load_dotenv()
 SECRET_KEY = os.getenv("SECRET_KEY")
 
@@ -93,3 +93,37 @@ def login():
     finally:
         cursor.close()
         conn.close()
+
+@auth_bp.route("/users", methods=["GET"])
+@admin_required
+def get_users():
+    """
+    Get users (optionally filter by role)
+    ---
+    tags:
+      - Users
+    parameters:
+      - name: role
+        in: query
+        type: string
+        required: false
+    responses:
+      200:
+        description: List users
+    """
+    role = request.args.get("role")
+
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+
+    if role:
+        cursor.execute("SELECT id, name, email, role FROM users WHERE role=%s", (role,))
+    else:
+        cursor.execute("SELECT id, name, email, role FROM users")
+
+    users = cursor.fetchall()
+
+    cursor.close()
+    conn.close()
+
+    return jsonify(users), 200

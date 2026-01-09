@@ -6,3 +6,4 @@ class TicketCreate(BaseModel):
     title: str
     description: Optional[str] = None
     priority: Literal["LOW", "MEDIUM", "HIGH"]
+    assigned_to: Optional[int] = None

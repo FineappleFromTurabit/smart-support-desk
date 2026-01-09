@@ -3,7 +3,7 @@ from pydantic import ValidationError
 from schemas.ticket import TicketCreate
 from db import get_db_connection
 from redis_client import delete_cached 
-from routes.auth_middleware import auth_required
+from routes.auth_middleware import auth_required, admin_required
 
 tickets_bp = Blueprint("tickets", __name__)
 @auth_required
@@ -123,9 +123,9 @@ def get_tickets():
         status = request.args.get("status")
         priority = request.args.get("priority")
         customer_id = request.args.get("customer_id")
-
+        assigned_to = request.args.get("assigned_to")
         query = """
-            SELECT id, customer_id, title, priority, status, created_at
+            SELECT id, customer_id, title, priority, status, created_at, updated_at, assigned_to
             FROM tickets
             WHERE 1=1
         """
@@ -142,6 +142,11 @@ def get_tickets():
         if customer_id:
             query += " AND customer_id = %s"
             params.append(customer_id)
+        
+        if assigned_to:
+          query += " AND assigned_to = %s"
+          params.append(assigned_to)
+
 
         query += " ORDER BY created_at DESC"
 
@@ -235,3 +240,56 @@ def update_ticket_status(ticket_id):
         if 'cursor' in locals():
             cursor.close()
             conn.close()
+
+@tickets_bp.route("/tickets/<int:ticket_id>/assign", methods=["PUT"])
+@admin_required
+def assign_ticket(ticket_id):
+    """
+    Assign a ticket to a support agent
+    ---
+    tags:
+      - Tickets
+    parameters:
+      - name: ticket_id
+        in: path
+        required: true
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          properties:
+            assigned_to:
+              type: integer
+              example: 3
+    responses:
+      200:
+        description: Ticket assigned
+    """
+    data = request.json
+    assigned_to = data.get("assigned_to")
+
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+
+    # Check ticket exists
+    cursor.execute("SELECT id FROM tickets WHERE id=%s", (ticket_id,))
+    if not cursor.fetchone():
+        return jsonify({"error": "Ticket not found"}), 404
+
+    # Check user is real
+    cursor.execute("SELECT id, role FROM users WHERE id=%s", (assigned_to,))
+    user = cursor.fetchone()
+    if not user or user["role"] != "agent":
+        return jsonify({"error": "User must be a valid AGENT"}), 400
+
+    cursor.execute("""
+        UPDATE tickets
+        SET assigned_to=%s
+        WHERE id=%s
+    """, (assigned_to, ticket_id))
+
+    conn.commit()
+    delete_cached("dashboard:summary")
+    
+    return jsonify({"message": "Ticket assigned"}), 200

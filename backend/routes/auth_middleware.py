@@ -1,6 +1,9 @@
 from flask import request, jsonify
 import jwt
-from .auth import SECRET_KEY
+import os
+from dotenv import load_dotenv
+load_dotenv()
+SECRET_KEY = os.getenv("SECRET_KEY")
 
 def auth_required(f):
     def wrapper(*args, **kwargs):
