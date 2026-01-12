@@ -10,11 +10,14 @@ st.set_page_config(page_title="Smart Support Desk", layout="wide")
 if "token" not in st.session_state:
     st.session_state.token = None
 
-if "role" not in st.session_state:
-    st.session_state.role = None
-
 if "user" not in st.session_state:
     st.session_state.user = None
+
+if "menu" not in st.session_state:
+    st.session_state.menu = "Dashboard"
+
+if "customer_data" not in st.session_state:
+    st.session_state.customer_data = {}
 
 # Title
 st.title("🎧 Smart Support Desk")
@@ -39,7 +42,6 @@ if not st.session_state.token:
                     data = res.json()
                     st.session_state.token = data["token"]
                     st.session_state.user = data["user"]
-                    st.session_state.role = data["user"]["role"]
                     st.success("Login successful!")
                     st.rerun()
                 else:
@@ -70,25 +72,27 @@ if not st.session_state.token:
 # -------------------------------
 # Sidebar: logged in user info + menu
 # -------------------------------
-st.sidebar.success(f"Logged in as {st.session_state.user['name']} ({st.session_state.user['role']})")
+st.sidebar.success(f"Logged in as {st.session_state.user['name']}")
 
 if st.sidebar.button("Logout"):
     st.session_state.token = None
+    st.session_state.user = None
+    st.session_state.filter_customer_id = None
+    st.session_state.filter_customer_name = None
+    st.session_state.menu = None
+    st.session_state.customer_data = {}
+    
+    st.session_state.menu = "Dashboard"
     st.rerun()
 
 headers = {"Authorization": f"Bearer {st.session_state.token}"}
-role = st.session_state.role
 
-if role.upper() == "ADMIN":
-    menu = st.sidebar.radio(
-        "📌 Select Page",
-        ["Dashboard", "Tickets", "Create Ticket", "Customers", "Create Customer", "Assign Ticket"]
-    )
-else:  # AGENT
-    menu = st.sidebar.radio(
-        "📌 Select Page",
-        ["Dashboard", "Tickets", "Create Ticket", "Customers"]
-    )
+menu = st.sidebar.radio(
+    "📌 Select Page",
+    ["Dashboard", "Tickets", "Create Ticket", "Customers", "Create Customer", "Assign Ticket"],
+    index=["Dashboard", "Tickets", "Create Ticket", "Customers", "Create Customer", "Assign Ticket"].index(st.session_state.menu)
+)
+st.session_state.menu = menu
 
 # -------------------------------
 # DASHBOARD
@@ -121,14 +125,18 @@ if menu == "Dashboard":
 elif menu == "Tickets":
     st.header("🎫 Tickets")
 
+    # if redirected from customer table
+    customer_filter = st.session_state.get("filter_customer_id", None)
+
     status = st.selectbox("Status", ["All", "OPEN", "IN_PROGRESS", "CLOSED"])
     priority = st.selectbox("Priority", ["All", "LOW", "MEDIUM", "HIGH"])
 
     params = {}
 
-    # Agent sees only own tickets
-    if role.upper() == "AGENT":
-        params["assigned_to"] = st.session_state.user["id"]
+    # If user clicked "View Tickets" for a customer
+    if customer_filter:
+        params["customer_id"] = customer_filter
+        st.info(f"Showing tickets for Customer ID: {st.session_state.get('filter_customer_id')} - {st.session_state.get('filter_customer_name','')}")
 
     # Filters
     if status != "All":
@@ -141,37 +149,67 @@ elif menu == "Tickets":
         tickets = res.json()
         st.dataframe(tickets, use_container_width=True)
     except Exception as e:
-        st.error("Failed to load tickets")
+        st.error(f"Failed to load tickets: {e}")
+
+    # Clear filter button
+    if customer_filter and st.button("Show All Tickets"):
+        st.session_state.filter_customer_id = None
+        st.rerun()
+
+
 
     st.subheader("Update Ticket Status")
-    ticket_id = st.number_input("Ticket ID", min_value=1)
-    new_status = st.selectbox("New Status", ["OPEN", "IN_PROGRESS", "CLOSED"])
 
-    if st.button("Update Status"):
-        r = requests.put(
-            f"{BASE_URL}/tickets/{ticket_id}/status",
-            json={"status": new_status},
-            headers=headers
+    if len(tickets) > 0:
+        # Build selector from actual tickets shown
+        ticket_options = {f"{t['id']} - {t['title']}": t['id'] for t in tickets}
+
+        selected_ticket = st.selectbox(
+            "Select a Ticket to Update",
+            list(ticket_options.keys())
         )
-        if r.status_code == 200:
-            st.success("Status updated")
-            st.rerun()
-        else:
-            st.error(r.text)
+
+        ticket_id = ticket_options[selected_ticket]
+        new_status = st.selectbox("New Status", ["OPEN", "IN_PROGRESS", "CLOSED"])
+
+        if st.button("Update Status"):
+            r = requests.put(
+                f"{BASE_URL}/tickets/{ticket_id}/status",
+                json={"status": new_status},
+                headers=headers
+            )
+            if r.status_code == 200:
+                st.success(f"Ticket {ticket_id} updated!")
+                st.rerun()
+            else:
+                st.error(r.text)
+    else:
+        st.info("No tickets found")
+    
+    if st.button("Create New Ticket"):
+        st.session_state.menu = "Create Ticket"
+        st.rerun()
+
 
 # -------------------------------
 # CREATE TICKET
 # -------------------------------
 elif menu == "Create Ticket":
     st.header("➕ Create Ticket")
+    # st.text(f"Customer Name : ",st.session_state.user['name'])
     with st.form("ticket_form"):
-        customer_id = st.number_input("Customer ID", min_value=1)
+        # customer_id = st.number_input("Customer ID", min_value=1 , value=st.session_state.get("filter_customer_id", 1))
+        # customer_id = st.selectbox("Customer", options=list(st.session_state.customer_data.keys()), format_func=lambda x: f"{x} - {st.session_state.customer_data[x]}",index = (len(st.session_state.customer_data) - int(st.session_state.get("filter_customer_id", 5))))
+        customer_id = st.selectbox("Customer", options=list(st.session_state.customer_data.keys()), format_func=lambda x: f"{x} - {st.session_state.customer_data[x]}",index = 0 if not st.session_state.get("filter_customer_id", None) else list(st.session_state.customer_data.keys()).index(st.session_state.get("filter_customer_id")))
+        if customer_id is None:
+            customer_id = st.number_input("Customer ID", min_value=1 , value=1)
         title = st.text_input("Title")
         desc = st.text_area("Description")
         priority = st.selectbox("Priority", ["LOW", "MEDIUM", "HIGH"])
 
         submit = st.form_submit_button("Create Ticket")
-
+        customer_data = dict(st.session_state.get('customer_data', {}))
+        st.text(f"Customer Name : {customer_data.get(customer_id, 'N/A')}") 
         if submit:
             payload = {
                 "customer_id": customer_id,
@@ -192,11 +230,48 @@ elif menu == "Create Ticket":
 elif menu == "Customers":
     st.header("👥 Customers")
     try:
-        res = requests.get(f"{BASE_URL}/customers", headers=headers)
+        name_filter = st.text_input("Search by Name ")
+
+        params = {}
+        if name_filter:
+            params["customer_name"] = name_filter
+        
+        res = requests.get(f"{BASE_URL}/customers", params=params, headers=headers)
+        res.raise_for_status()
         customers = res.json()
-        st.dataframe(customers, use_container_width=True)
-    except:
-        st.error("Failed to load customers")
+        # st.session_state.customer_data = customers 
+        for cust in customers:
+         st.session_state.customer_data[cust['id']] = cust['name']
+        # Add dynamic link to each row
+        
+
+        # Show table with a View column
+        st.dataframe(
+            customers,
+            use_container_width=True,
+           
+        )
+
+        # Detect click by row selection
+        selected = st.selectbox(
+            "Select Customer to View Tickets",
+            [f"{c['id']} - {c['name']}" for c in customers]
+        )
+
+        if st.button("View Tickets"):
+            cust_id = int(selected.split(" - ")[0])
+            
+            st.session_state.filter_customer_id = cust_id
+            st.session_state.filter_customer_name = selected.split(" - ")[1]
+            st.session_state.menu = "Tickets"
+            st.rerun()
+
+        if st.button("➕ Create New Customer"):
+            st.session_state.menu = "Create Customer"
+            st.rerun()
+
+    except Exception as e:
+        st.error(f"Failed to load customers: {e}")
 
 # -------------------------------
 # CREATE CUSTOMER
@@ -214,38 +289,38 @@ elif menu == "Create Customer":
             payload = {"name": name, "email": email, "company": company}
             r = requests.post(f"{BASE_URL}/customers", json=payload, headers=headers)
             if r.status_code == 201:
+                st.session_state.filter_customer_id = None #empty the customer filter
                 st.success("Customer created")
                 st.rerun()
             else:
                 st.error(r.text)
 
 # -------------------------------
-# ASSIGN TICKET TO AGENT (admin only)
+# ASSIGN TICKET TO ANY USER
 # -------------------------------
 elif menu == "Assign Ticket":
-    if role.upper() == "ADMIN":
-        st.subheader("Assign Ticket to Agent")
+    st.subheader("Assign Ticket")
 
-        ticket_id_sel = st.number_input("Ticket ID to Assign", min_value=1)
+    ticket_id_sel = st.number_input("Ticket ID to Assign", min_value=1)
 
-        agents_res = requests.get(f"{BASE_URL}/users?role=agent", headers=headers)
-        agents = agents_res.json() if agents_res.status_code == 200 else []
+    agents_res = requests.get(f"{BASE_URL}/users", headers=headers)
+    agents = agents_res.json() if agents_res.status_code == 200 else []
 
-        if agents:
-            agent_dict = {a["name"]: a["id"] for a in agents}
-            agent_name = st.selectbox("Assign To", list(agent_dict.keys()))
-            assigned_to_id = agent_dict[agent_name]
+    if agents:
+        agent_dict = {a["name"]: a["id"] for a in agents}
+        agent_name = st.selectbox("Assign To", list(agent_dict.keys()))
+        assigned_to_id = agent_dict[agent_name]
 
-            if st.button("Assign Ticket"):
-                res = requests.put(
-                    f"{BASE_URL}/tickets/{ticket_id_sel}/assign",
-                    json={"assigned_to": assigned_to_id},
-                    headers=headers
-                )
-                if res.status_code == 200:
-                    st.success("Ticket assigned")
-                    st.rerun()
-                else:
-                    st.error(res.text)
-        else:
-            st.info("No agents available")
+        if st.button("Assign Ticket"):
+            res = requests.put(
+                f"{BASE_URL}/tickets/{ticket_id_sel}/assign",
+                json={"assigned_to": assigned_to_id},
+                headers=headers
+            )
+            if res.status_code == 200:
+                st.success("Ticket assigned")
+                st.rerun()
+            else:
+                st.error(res.text)
+    else:
+        st.info("No users available")

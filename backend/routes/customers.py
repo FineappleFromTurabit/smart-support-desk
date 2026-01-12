@@ -105,14 +105,20 @@ def get_customers():
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
 
-        cursor.execute("""
+        query = """
             SELECT id, name, email, company, created_at
             FROM customers
-            ORDER BY created_at DESC
-        """)
+            
+        """
+        params = []
+        if 'customer_name' in request.args:
+            query += "where name LIKE %s"
+            params.append('%' + request.args['customer_name'] + '%')
+        query += " ORDER BY created_at DESC"
 
+        cursor.execute(query, tuple(params))
         rows = cursor.fetchall()
-
+        
         # Validate output
         customers = [CustomerResponse(**row).dict() for row in rows]
 

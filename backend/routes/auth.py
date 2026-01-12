@@ -95,7 +95,6 @@ def login():
         conn.close()
 
 @auth_bp.route("/users", methods=["GET"])
-@admin_required
 def get_users():
     """
     Get users (optionally filter by role)

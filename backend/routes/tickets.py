@@ -6,7 +6,6 @@ from redis_client import delete_cached
 from routes.auth_middleware import auth_required, admin_required
 
 tickets_bp = Blueprint("tickets", __name__)
-@auth_required
 @tickets_bp.route("/tickets", methods=["POST"])
 def create_ticket():
     """
@@ -123,7 +122,7 @@ def get_tickets():
         status = request.args.get("status")
         priority = request.args.get("priority")
         customer_id = request.args.get("customer_id")
-        assigned_to = request.args.get("assigned_to")
+        # assigned_to = request.args.get("assigned_to")
         query = """
             SELECT id, customer_id, title, priority, status, created_at, updated_at, assigned_to
             FROM tickets
@@ -143,9 +142,9 @@ def get_tickets():
             query += " AND customer_id = %s"
             params.append(customer_id)
         
-        if assigned_to:
-          query += " AND assigned_to = %s"
-          params.append(assigned_to)
+        # if assigned_to:
+        #   query += " AND assigned_to = %s"
+        #   params.append(assigned_to)
 
 
         query += " ORDER BY created_at DESC"
@@ -242,7 +241,6 @@ def update_ticket_status(ticket_id):
             conn.close()
 
 @tickets_bp.route("/tickets/<int:ticket_id>/assign", methods=["PUT"])
-@admin_required
 def assign_ticket(ticket_id):
     """
     Assign a ticket to a support agent
