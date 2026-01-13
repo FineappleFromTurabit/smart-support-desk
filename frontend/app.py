@@ -9,6 +9,7 @@ st.set_page_config(page_title="Smart Support Desk", layout="wide")
 # -------------------------------
 if "token" not in st.session_state:
     st.session_state.token = None
+headers = {"Authorization": f"Bearer {st.session_state.token}"}
 
 if "user" not in st.session_state:
     st.session_state.user = None
@@ -16,8 +17,12 @@ if "user" not in st.session_state:
 if "menu" not in st.session_state:
     st.session_state.menu = "Dashboard"
 
-if "customer_data" not in st.session_state:
-    st.session_state.customer_data = {}
+# if "customer_data" not in st.session_state:
+#     st.session_state.customer_data = {}
+
+if "customers" not in st.session_state:
+    res = requests.get(f"{BASE_URL}/customers") 
+    st.session_state.customers = res.json() if res.status_code == 200 else []
 
 # Title
 st.title("🎧 Smart Support Desk")
@@ -80,12 +85,11 @@ if st.sidebar.button("Logout"):
     st.session_state.filter_customer_id = None
     st.session_state.filter_customer_name = None
     st.session_state.menu = None
-    st.session_state.customer_data = {}
+    # st.session_state.customer_data = {}
     
     st.session_state.menu = "Dashboard"
     st.rerun()
 
-headers = {"Authorization": f"Bearer {st.session_state.token}"}
 
 menu = st.sidebar.radio(
     "📌 Select Page",
@@ -170,7 +174,7 @@ elif menu == "Tickets":
         )
 
         ticket_id = ticket_options[selected_ticket]
-        new_status = st.selectbox("New Status", ["OPEN", "IN_PROGRESS", "CLOSED"])
+        new_status = st.selectbox("New Status", ["OPEN", "IN_PROGRESS", "CLOSED"], )
 
         if st.button("Update Status"):
             r = requests.put(
@@ -200,16 +204,16 @@ elif menu == "Create Ticket":
     with st.form("ticket_form"):
         # customer_id = st.number_input("Customer ID", min_value=1 , value=st.session_state.get("filter_customer_id", 1))
         # customer_id = st.selectbox("Customer", options=list(st.session_state.customer_data.keys()), format_func=lambda x: f"{x} - {st.session_state.customer_data[x]}",index = (len(st.session_state.customer_data) - int(st.session_state.get("filter_customer_id", 5))))
-        customer_id = st.selectbox("Customer", options=list(st.session_state.customer_data.keys()), format_func=lambda x: f"{x} - {st.session_state.customer_data[x]}",index = 0 if not st.session_state.get("filter_customer_id", None) else list(st.session_state.customer_data.keys()).index(st.session_state.get("filter_customer_id")))
-        if customer_id is None:
-            customer_id = st.number_input("Customer ID", min_value=1 , value=1)
+        # customer_id = st.selectbox("Customer", options=list(st.session_state.customer_data.keys()), format_func=lambda x: f"{x} - {st.session_state.customer_data[x]}",index = 0 if not st.session_state.get("filter_customer_id", None) else list(st.session_state.customer_data.keys()).index(st.session_state.get("filter_customer_id")))
+        customer_id = st.selectbox("Customer", options=st.session_state.customers, format_func=lambda x: f"{x['id']} - {x['name']} - {x['email']}", index=0 if not st.session_state.get("filter_customer_id", None) else next((i for i, c in enumerate(st.session_state.customers) if c['id'] == st.session_state.get("filter_customer_id")), 0)).get('id')
+        
         title = st.text_input("Title")
         desc = st.text_area("Description")
         priority = st.selectbox("Priority", ["LOW", "MEDIUM", "HIGH"])
 
         submit = st.form_submit_button("Create Ticket")
         customer_data = dict(st.session_state.get('customer_data', {}))
-        st.text(f"Customer Name : {customer_data.get(customer_id, 'N/A')}") 
+        # st.text(f"Customer Name : {customer_data.get(customer_id, 'N/A')}") 
         if submit:
             payload = {
                 "customer_id": customer_id,
@@ -220,6 +224,7 @@ elif menu == "Create Ticket":
             r = requests.post(f"{BASE_URL}/tickets", json=payload, headers=headers)
             if r.status_code == 201:
                 st.success("Ticket created")
+                st.session_state.menu = "Tickets"
                 st.rerun()
             else:
                 st.error(r.text)
@@ -239,9 +244,10 @@ elif menu == "Customers":
         res = requests.get(f"{BASE_URL}/customers", params=params, headers=headers)
         res.raise_for_status()
         customers = res.json()
+       
         # st.session_state.customer_data = customers 
-        for cust in customers:
-         st.session_state.customer_data[cust['id']] = cust['name']
+        # for cust in customers:
+        #  st.session_state.customer_data[cust['id']] = cust['name']
         # Add dynamic link to each row
         
 
@@ -255,8 +261,9 @@ elif menu == "Customers":
         # Detect click by row selection
         selected = st.selectbox(
             "Select Customer to View Tickets",
-            [f"{c['id']} - {c['name']}" for c in customers]
+            [f"{c['id']} - {c['name']} - {c['email']}"  for c in customers]
         )
+
 
         if st.button("View Tickets"):
             cust_id = int(selected.split(" - ")[0])
@@ -290,6 +297,8 @@ elif menu == "Create Customer":
             r = requests.post(f"{BASE_URL}/customers", json=payload, headers=headers)
             if r.status_code == 201:
                 st.session_state.filter_customer_id = None #empty the customer filter
+                res = requests.get(f"{BASE_URL}/customers", headers=headers)
+                st.session_state.customers = res.json() if res.status_code == 200 else []
                 st.success("Customer created")
                 st.rerun()
             else:
