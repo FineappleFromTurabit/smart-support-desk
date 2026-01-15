@@ -24,6 +24,13 @@ if "customers" not in st.session_state:
     res = requests.get(f"{BASE_URL}/customers") 
     st.session_state.customers = res.json() if res.status_code == 200 else []
 
+if "agents" not in st.session_state:
+    res = requests.get(f"{BASE_URL}/users") 
+    st.session_state.agents = res.json() if res.status_code == 200 else []
+
+
+if "agent_workload" not in st.session_state:
+    st.session_state.agent_workload = [{}]
 # Title
 st.title("🎧 Smart Support Desk")
 
@@ -93,10 +100,14 @@ if st.sidebar.button("Logout"):
 
 menu = st.sidebar.radio(
     "📌 Select Page",
-    ["Dashboard", "Tickets", "Create Ticket", "Customers", "Create Customer", "Assign Ticket"],
-    index=["Dashboard", "Tickets", "Create Ticket", "Customers", "Create Customer", "Assign Ticket"].index(st.session_state.menu)
+    ["Dashboard", "Tickets", "Create Ticket", "Customers", "Create Customer", "Assign Ticket","Update Ticket"],
+    index=["Dashboard", "Tickets", "Create Ticket", "Customers", "Create Customer", "Assign Ticket","Update Ticket"].index(st.session_state.menu)
 )
-st.session_state.menu = menu
+
+# update state immediately
+if menu != st.session_state.menu:
+    st.session_state.menu = menu
+    st.rerun() 
 
 # -------------------------------
 # DASHBOARD
@@ -134,7 +145,7 @@ elif menu == "Tickets":
 
     status = st.selectbox("Status", ["All", "OPEN", "IN_PROGRESS", "CLOSED"])
     priority = st.selectbox("Priority", ["All", "LOW", "MEDIUM", "HIGH"])
-
+    assign_to_me = st.checkbox("Assigned to Me", value=False)
     params = {}
 
     # If user clicked "View Tickets" for a customer
@@ -147,10 +158,13 @@ elif menu == "Tickets":
         params["status"] = status
     if priority != "All":
         params["priority"] = priority
-
+    if assign_to_me:
+        params["assigned_to"] = st.session_state.user["id"]
+    
     try:
         res = requests.get(f"{BASE_URL}/tickets", params=params, headers=headers)
         tickets = res.json()
+        st.session_state.tickets = tickets  # Store tickets in session state
         st.dataframe(tickets, use_container_width=True)
     except Exception as e:
         st.error(f"Failed to load tickets: {e}")
@@ -162,33 +176,11 @@ elif menu == "Tickets":
 
 
 
-    st.subheader("Update Ticket Status")
-
-    if len(tickets) > 0:
-        # Build selector from actual tickets shown
-        ticket_options = {f"{t['id']} - {t['title']}": t['id'] for t in tickets}
-
-        selected_ticket = st.selectbox(
-            "Select a Ticket to Update",
-            list(ticket_options.keys())
-        )
-
-        ticket_id = ticket_options[selected_ticket]
-        new_status = st.selectbox("New Status", ["OPEN", "IN_PROGRESS", "CLOSED"], )
-
-        if st.button("Update Status"):
-            r = requests.put(
-                f"{BASE_URL}/tickets/{ticket_id}/status",
-                json={"status": new_status},
-                headers=headers
-            )
-            if r.status_code == 200:
-                st.success(f"Ticket {ticket_id} updated!")
-                st.rerun()
-            else:
-                st.error(r.text)
-    else:
-        st.info("No tickets found")
+    flag4 = st.button("Update Ticket Status")
+    if flag4:
+        st.session_state.menu = "Update Ticket"
+        st.rerun()
+        
     
     if st.button("Create New Ticket"):
         st.session_state.menu = "Create Ticket"
@@ -201,6 +193,8 @@ elif menu == "Tickets":
 elif menu == "Create Ticket":
     st.header("➕ Create Ticket")
     # st.text(f"Customer Name : ",st.session_state.user['name'])
+    params = {}
+    params['role'] = 'agent'
     with st.form("ticket_form"):
         # customer_id = st.number_input("Customer ID", min_value=1 , value=st.session_state.get("filter_customer_id", 1))
         # customer_id = st.selectbox("Customer", options=list(st.session_state.customer_data.keys()), format_func=lambda x: f"{x} - {st.session_state.customer_data[x]}",index = (len(st.session_state.customer_data) - int(st.session_state.get("filter_customer_id", 5))))
@@ -210,17 +204,46 @@ elif menu == "Create Ticket":
         title = st.text_input("Title")
         desc = st.text_area("Description")
         priority = st.selectbox("Priority", ["LOW", "MEDIUM", "HIGH"])
+        
+        agents_res = requests.get(f"{BASE_URL}/users", params = params,headers=headers)
+        agents = agents_res.json() if agents_res.status_code == 200 else []
+        
+        # agent_name = st.selectbox("Assign To", list(agent_dict.keys()),list)
+        
+            
+         
+        options = [None] + [f"{a['id']}-{a['name']} - {a['email']}" for a in agents]
 
+        default_index = (
+            next((i+1 for i, a in enumerate(agents) if a['id'] == st.session_state.user['id']), 0)
+            if st.session_state.user['role'] == 'agent'
+            else 0
+        )
+
+        agent_name = st.selectbox("Assign To", options, index=default_index)
+
+        #do something like that so it will on the agent who logged in by default
+        
+        
         submit = st.form_submit_button("Create Ticket")
+
+        
+
         customer_data = dict(st.session_state.get('customer_data', {}))
         # st.text(f"Customer Name : {customer_data.get(customer_id, 'N/A')}") 
         if submit:
+            if agent_name != None:
+                assigned_to_id = int(agent_name.split("-")[0])
+            else:
+                assigned_to_id = None
             payload = {
                 "customer_id": customer_id,
                 "title": title,
                 "description": desc,
-                "priority": priority
+                "priority": priority,
+                "assigned_to": assigned_to_id
             }
+            
             r = requests.post(f"{BASE_URL}/tickets", json=payload, headers=headers)
             if r.status_code == 201:
                 st.success("Ticket created")
@@ -333,3 +356,56 @@ elif menu == "Assign Ticket":
                 st.error(res.text)
     else:
         st.info("No users available")
+
+elif menu == "Update Ticket":
+    st.header("Update Ticket")
+    tickets = st.session_state.get('tickets', [])
+    if len(tickets) > 0:
+            # Build selector from actual tickets shown
+            ticket_options = {f"{t['id']} - {t['title']}": t['id'] for t in tickets}
+
+            selected_ticket = st.selectbox(
+                "Select a Ticket to Update",
+                list(ticket_options.keys())
+            )
+            params = {}
+            params['role'] = 'agent'
+            ticket_id = ticket_options[selected_ticket]
+
+            new_status = st.selectbox("New Status", ["OPEN", "IN_PROGRESS", "CLOSED"], )
+            
+            agents_res = requests.get(f"{BASE_URL}/users", params = params,headers=headers)
+
+            agents = agents_res.json() if agents_res.status_code == 200 else []
+
+            options = [None] + [f"{a['id']}-{a['name']} - {a['email']}" for a in agents]
+
+            default_index = (
+                next((i+1 for i, a in enumerate(agents) if a['id'] == st.session_state.user['id']), 0)
+                if st.session_state.user['role'] == 'agent'
+                else 0
+            )
+
+            agent_name = st.selectbox("Assign To", options, index=default_index)
+
+            
+            if st.button("Update Status"):
+                
+                if agent_name != None:
+                    assigned_to_id = int(agent_name.split("-")[0])
+                else:
+                    assigned_to_id = None
+                    
+                r = requests.put(
+                    f"{BASE_URL}/tickets/{ticket_id}/update",
+                    json={"status": new_status, "assigned_to": assigned_to_id},
+                    headers=headers
+                )
+                if r.status_code == 200:
+                    st.success(f"Ticket {ticket_id} updated!")
+                    st.session_state.menu = "Tickets"
+                    st.rerun()
+                else:
+                    st.error(r.text)
+    else:
+        st.info("No tickets found")

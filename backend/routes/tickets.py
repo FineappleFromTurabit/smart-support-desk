@@ -64,13 +64,14 @@ def create_ticket():
 
         # 2️⃣ Insert ticket
         cursor.execute("""
-            INSERT INTO tickets (customer_id, title, description, priority)
-            VALUES (%s, %s, %s, %s)
+            INSERT INTO tickets (customer_id, title, description, priority,assigned_to)
+            VALUES (%s, %s, %s, %s, %s)
         """, (
             data.customer_id,
             data.title,
             data.description,
-            data.priority
+            data.priority,
+            data.assigned_to
         ))
 
         conn.commit()   #  ticket is now saved
@@ -122,6 +123,8 @@ def get_tickets():
         status = request.args.get("status")
         priority = request.args.get("priority")
         customer_id = request.args.get("customer_id")
+        assigned_to = request.args.get("assigned_to")
+
         # assigned_to = request.args.get("assigned_to")
         query = """
             SELECT id, customer_id, title, priority, status, created_at, updated_at, assigned_to
@@ -142,9 +145,10 @@ def get_tickets():
             query += " AND customer_id = %s"
             params.append(customer_id)
         
-        # if assigned_to:
-        #   query += " AND assigned_to = %s"
-        #   params.append(assigned_to)
+
+        if assigned_to:
+          query += " AND assigned_to = %s"
+          params.append(assigned_to)
 
 
         query += " ORDER BY created_at DESC"
@@ -168,10 +172,10 @@ def get_tickets():
 
 from typing import Literal
 
-@tickets_bp.route("/tickets/<int:ticket_id>/status", methods=["PUT"])
+@tickets_bp.route("/tickets/<int:ticket_id>/update", methods=["PUT"])
 def update_ticket_status(ticket_id):
     """
-    Update ticket status
+    Update ticket 
     ---
     tags:
       - Tickets
@@ -200,6 +204,7 @@ def update_ticket_status(ticket_id):
     try:
         body = request.json
         new_status = body.get("status")
+        assigned_to = body.get("assigned_to")
 
         if new_status not in ["OPEN", "IN_PROGRESS", "CLOSED"]:
             return jsonify({"error": "Invalid status"}), 400
@@ -221,9 +226,9 @@ def update_ticket_status(ticket_id):
         # Update status
         cursor.execute("""
             UPDATE tickets
-            SET status = %s
+            SET status = %s, assigned_to = %s
             WHERE id = %s
-        """, (new_status, ticket_id))
+        """, (new_status, assigned_to, ticket_id))
 
         conn.commit()
 
