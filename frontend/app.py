@@ -141,7 +141,7 @@ elif menu == "Tickets":
     st.header("🎫 Tickets")
 
     # if redirected from customer table
-    customer_filter = st.session_state.get("filter_customer_idz", None)
+    customer_filter = st.session_state.get("filter_customer_id", None)
 
     status = st.selectbox("Status", ["All", "OPEN", "IN_PROGRESS", "CLOSED"])
     priority = st.selectbox("Priority", ["All", "LOW", "MEDIUM", "HIGH"])
