@@ -126,3 +126,25 @@ def get_users():
     conn.close()
 
     return jsonify(users), 200
+
+@auth_bp.route("/users/<int:id>", methods=["DELETE"])
+def delete_user(id):
+    """
+    Delete a user (agent)
+    """
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("DELETE FROM users WHERE id=%s", (id,))
+        if cursor.rowcount == 0:
+            return jsonify({"error": "User not found"}), 404
+
+        conn.commit()
+        return jsonify({"message": "User deleted"}), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()

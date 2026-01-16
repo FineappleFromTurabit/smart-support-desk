@@ -131,3 +131,47 @@ def get_customers():
         if 'cursor' in locals():
             cursor.close()
             conn.close()
+
+
+@customers_bp.route("/customers/<int:id>", methods=["DELETE"])
+def delete_customer(id):
+    """
+    Delete a customer
+    ---
+    tags:
+      - Customers
+    parameters:
+      - name: id
+        in: path
+        required: true
+        type: integer
+        description: Customer ID
+    responses:
+      200:
+        description: Customer deleted
+      404:
+        description: Customer not found
+      500:
+        description: Internal server error
+    """
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # Delete customer (tickets auto-delete if FK ON DELETE CASCADE)
+        query = "DELETE FROM customers WHERE id=%s"
+        cursor.execute(query, (id,))
+
+        if cursor.rowcount == 0:
+            return jsonify({"error": "Customer not found"}), 404
+
+        conn.commit()
+        return jsonify({"message": "Customer deleted"}), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+    finally:
+        if 'cursor' in locals():
+            cursor.close()
+            conn.close()

@@ -124,8 +124,8 @@ def get_tickets():
         priority = request.args.get("priority")
         customer_id = request.args.get("customer_id")
         assigned_to = request.args.get("assigned_to")
-
-        # assigned_to = request.args.get("assigned_to")
+        ticket_id = request.args.get("ticket_id")
+        assigned_to = request.args.get("assigned_to")
         query = """
             SELECT id, customer_id, title, priority, status, created_at, updated_at, assigned_to
             FROM tickets
@@ -150,6 +150,9 @@ def get_tickets():
           query += " AND assigned_to = %s"
           params.append(assigned_to)
 
+        if ticket_id:
+            query += " AND id = %s"
+            params.append(ticket_id)
 
         query += " ORDER BY created_at DESC"
 
@@ -296,3 +299,25 @@ def assign_ticket(ticket_id):
     delete_cached("dashboard:summary")
     
     return jsonify({"message": "Ticket assigned"}), 200
+
+@tickets_bp.route("/tickets/<int:id>", methods=["DELETE"])
+def delete_ticket(id):
+    """
+    Delete a ticket
+    """
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("DELETE FROM tickets WHERE id=%s", (id,))
+        if cursor.rowcount == 0:
+            return jsonify({"error": "Ticket not found"}), 404
+
+        conn.commit()
+        return jsonify({"message": "Ticket deleted"}), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
