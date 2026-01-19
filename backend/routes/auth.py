@@ -29,9 +29,9 @@ def register():
         password_hash = bcrypt.hash(data.password)
 
         cursor.execute("""
-            INSERT INTO users (name, email, password_hash)
-            VALUES (%s, %s, %s)
-        """, (data.name, data.email, password_hash))
+            INSERT INTO users (name, email, password_hash,role)
+            VALUES (%s, %s, %s, %s)
+        """, (data.name, data.email, password_hash, data.role))
 
         conn.commit()
 

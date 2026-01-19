@@ -3,6 +3,7 @@ import requests
 
 BASE_URL = "http://127.0.0.1:5000"
 st.set_page_config(page_title="Smart Support Desk", layout="wide")
+st.sidebar.header("𝓢𝓶𝓪𝓻𝓽 𝓢𝓾𝓹𝓹𝓸𝓻𝓽 𝓓𝓮𝓼𝓴")
 
 # -------------------------------
 # Session State Setup
@@ -13,7 +14,8 @@ headers = {"Authorization": f"Bearer {st.session_state.token}"}
 
 if "user" not in st.session_state:
     st.session_state.user = None
-
+if "agents" not in st.session_state:
+    st.session_state.agents = None
 if "menu" not in st.session_state:
     st.session_state.menu = "Dashboard"
 
@@ -24,7 +26,7 @@ if "customers" not in st.session_state:
     res = requests.get(f"{BASE_URL}/customers") 
     st.session_state.customers = res.json() if res.status_code == 200 else []
 
-if "agents" not in st.session_state:
+if st.session_state.agents == None:
     res = requests.get(f"{BASE_URL}/users") 
     st.session_state.agents = res.json() if res.status_code == 200 else []
 
@@ -32,7 +34,6 @@ if "agents" not in st.session_state:
 if "agent_workload" not in st.session_state:
     st.session_state.agent_workload = [{}]
 # Title
-st.title("🎧 Smart Support Desk")
 
 # -------------------------------
 # AUTH BLOCK (Login + Register)
@@ -72,7 +73,7 @@ if not st.session_state.token:
         if st.button("Create Account"):
             try:
                 res = requests.post(f"{BASE_URL}/register",
-                                    json={"name": name, "email": email, "password": password})
+                                    json={"name": name, "email": email, "password": password, "role": "AGENT"})
                 if res.status_code == 201:
                     st.success("Account created! Please login now.")
                 else:
@@ -93,16 +94,25 @@ if st.sidebar.button("Logout"):
     st.session_state.filter_customer_name = None
     st.session_state.menu = None
     # st.session_state.customer_data = {}
+    st.session_state.agents = None
     
     st.session_state.menu = "Dashboard"
     st.rerun()
 
-
-menu = st.sidebar.radio(
+if st.session_state.user['role'].upper() == 'ADMIN':
+    
+    menu = st.sidebar.radio(
+    "📌 Select Page",
+    ["Dashboard", "Tickets", "Create Ticket", "Customers", "Create Customer","Update Ticket",'Register Admin/Agent','Delete Admin/Agent'],
+    index=["Dashboard", "Tickets", "Create Ticket", "Customers", "Create Customer","Update Ticket","Register Admin/Agent","Delete Admin/Agent"].index(st.session_state.menu)
+)
+else:
+    menu = st.sidebar.radio(
     "📌 Select Page",
     ["Dashboard", "Tickets", "Create Ticket", "Customers", "Create Customer","Update Ticket"],
     index=["Dashboard", "Tickets", "Create Ticket", "Customers", "Create Customer","Update Ticket"].index(st.session_state.menu)
 )
+
 
 # update state immediately
 if menu != st.session_state.menu:
@@ -125,14 +135,18 @@ import pandas as pd
 # DASHBOARD with admin/agent summary
 # -------------------------------
 if menu == "Dashboard":
+    # how to write header in the middle of the page
     st.header("📊 Dashboard Summary")
+    if 'ADMIN' == st.session_state.user.get("role").upper():
+        st.write("👑 Admin View")
+        st.info("You are viewing the dashboard as an Admin. You have access to the full system summary.")
 
     try:
         # Load full summary for Admin always
         res_sum = requests.get(f"{BASE_URL}/dashboard/summary", headers=headers)
         res_sum.raise_for_status()
         data = res_sum.json()
-
+ 
         by_status = pd.DataFrame(data.get("by_status", []))
         by_priority = pd.DataFrame(data.get("by_priority", []))
 
@@ -311,7 +325,7 @@ elif menu == "Tickets":
 
 
 
-    flag4 = st.button("Update Ticket Status")
+    flag4 = st.button("Update Ticket")
     if flag4 :
         st.session_state.menu = "Update Ticket"
         st.rerun()
@@ -557,3 +571,72 @@ elif menu == "Update Ticket":
                         st.error(r.text)
     else:
         st.info("No tickets found")
+
+elif menu == 'Register Admin/Agent':
+    st.header("🆕 Register Admin/Agent")
+    name = st.text_input("Name")
+    email = st.text_input("Email")
+    password = st.text_input("Password", type="password")
+    role = st.selectbox("Role", options=['ADMIN', 'AGENT'])
+    if st.button("Create Account"):
+        try:
+            res = requests.post(f"{BASE_URL}/register",
+                                json={"name": name, "email": email, "password": password, "role": role})
+            if res.status_code == 201:
+                st.success(f"{role} Account created! Please login now.")
+                st.session_state.agents = requests.get(f"{BASE_URL}/users", headers=headers).json()
+            else:
+                st.error(res.text)
+        except Exception as e:
+            st.error(f"Registration failed: {e}")
+    st.stop()
+
+elif menu == 'Delete Admin/Agent':
+    st.header("🗑️ Delete Admin")
+    st.session_state.agents = requests.get(f"{BASE_URL}/users", headers=headers).json()
+    admin_users = [u for u in st.session_state.agents if u['role'].upper() == 'ADMIN']
+    if len(admin_users) > 0:
+        selected_admin = st.selectbox(
+            "Select an Admin to Delete",
+            [f"{u['id']} - {u['name']} - {u['email']}" for u in admin_users]
+        )
+        admin_id = int(selected_admin.split(" - ")[0])
+        if st.button("Delete Admin"):
+            try:
+                if admin_id == st.session_state.user['id']:
+                    st.error("You cannot delete your own admin account while logged in.")
+                else:
+                    res_del = requests.delete(f"{BASE_URL}/users/{admin_id}", headers=headers)
+                    if res_del.status_code == 200:
+                        st.success(f"Admin {admin_id} deleted successfully")
+                        st.session_state.agents = None
+                        st.rerun()
+                    else:
+                        st.error(res_del.text)
+            except Exception as e:
+                st.error(f"Failed to delete admin: {e}")
+    else:
+        st.info("No admin users found")
+    
+    st.header("🗑️ Delete Agent")
+    agent_users = [u for u in st.session_state.agents if u['role'].upper() == 'AGENT']
+    if len(agent_users) > 0:
+        selected_agent = st.selectbox(
+            "Select an Agent to Delete",
+            [f"{u['id']} - {u['name']} - {u['email']}" for u in agent_users]
+        )
+        agent_id = int(selected_agent.split(" - ")[0])
+        if st.button("Delete Agent"):
+            try:
+                if agent_id == st.session_state.user['id']:
+                    st.error("You cannot delete your own agent account while logged in.")
+                else:
+                    res_del = requests.delete(f"{BASE_URL}/users/{agent_id}", headers=headers)
+                    if res_del.status_code == 200:
+                        st.success(f"Agent {agent_id} deleted successfully")
+                        st.session_state.agents = None
+                        st.rerun()
+                    else:
+                        st.error(res_del.text)
+            except Exception as e:
+                st.error(f"Failed to delete agent: {e}")
