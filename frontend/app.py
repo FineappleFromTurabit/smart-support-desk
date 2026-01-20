@@ -13,12 +13,13 @@ if "token" not in st.session_state:
 headers = {"Authorization": f"Bearer {st.session_state.token}"}
 
 if "user" not in st.session_state:
-    st.session_state.user = None
+    st.session_state.user = {}
 if "agents" not in st.session_state:
     st.session_state.agents = None
 if "menu" not in st.session_state:
     st.session_state.menu = "Dashboard"
-
+if "ticket_id" not in st.session_state:
+    st.session_state.ticket_id = None
 # if "customer_data" not in st.session_state:
 #     st.session_state.customer_data = {}
 
@@ -103,14 +104,14 @@ if st.session_state.user['role'].upper() == 'ADMIN':
     
     menu = st.sidebar.radio(
     "📌 Select Page",
-    ["Dashboard", "Tickets", "Create Ticket", "Customers", "Create Customer","Update Ticket",'Register Admin/Agent','Delete Admin/Agent'],
-    index=["Dashboard", "Tickets", "Create Ticket", "Customers", "Create Customer","Update Ticket","Register Admin/Agent","Delete Admin/Agent"].index(st.session_state.menu)
+    ["Dashboard", "Tickets", "Create Ticket", "Customers", "Create Customer","Update Ticket",'Register Admin/Agent','Delete Admin/Agent','Ticket Detail'],
+    index=["Dashboard", "Tickets", "Create Ticket", "Customers", "Create Customer","Update Ticket","Register Admin/Agent","Delete Admin/Agent","Ticket Detail"].index(st.session_state.menu)
 )
 else:
     menu = st.sidebar.radio(
     "📌 Select Page",
-    ["Dashboard", "Tickets", "Create Ticket", "Customers", "Create Customer","Update Ticket"],
-    index=["Dashboard", "Tickets", "Create Ticket", "Customers", "Create Customer","Update Ticket"].index(st.session_state.menu)
+    ["Dashboard", "Tickets", "Create Ticket", "Customers", "Create Customer","Update Ticket","Ticket Detail"],
+    index=["Dashboard", "Tickets", "Create Ticket", "Customers", "Create Customer","Update Ticket","Ticket Detail"].index(st.session_state.menu)
 )
 
 
@@ -322,37 +323,57 @@ elif menu == "Tickets":
     if customer_filter and st.button("Show All Tickets"):
         st.session_state.filter_customer_id = None
         st.rerun()
+    col1, col2 = st.columns(2)
 
+    with col1:
+        with st.expander("View Ticket"):
+            ticket_options = {f"{t['id']} - {t['title']}": t['id'] for t in tickets}
 
-
-    flag4 = st.button("Update Ticket")
-    if flag4 :
-        st.session_state.menu = "Update Ticket"
-        st.rerun()
+            selected_ticket_id = st.selectbox(
+                "Select A Ticket To View",
+                list(ticket_options.keys())
+            )
+            if selected_ticket_id == None:
+                st.info("No tickets available to view")
+            else:
+                ticket_id = ticket_options[selected_ticket_id]
+                if st.button("Open Ticket"):
+                        st.session_state.ticket_id = ticket_id
+                        st.session_state.menu = "Ticket Detail"
+                        st.rerun()
         
-    with st.expander("Delete Ticket"):
-        ticket_options = {f"{t['id']} - {t['title']}": t['id'] for t in tickets}
-        selected_ticket_del = st.selectbox(
-            "Select a Ticket to Delete",
-            list(ticket_options.keys())
-        )
-        if selected_ticket_del == None:
-            st.info("No tickets available to delete")
-        else:
-            ticket_id_del = ticket_options[selected_ticket_del]
-        if st.button("Delete Ticket"):
-            try:
-                res_del = requests.delete(f"{BASE_URL}/tickets/{ticket_id_del}", headers=headers)
-                if res_del.status_code == 200:
-                    st.success(f"Ticket {ticket_id_del} deleted successfully")
-                    st.rerun()
-                else:
-                    st.error(res_del.text)
-            except Exception as e:
-                st.error(f"Failed to delete ticket: {e}")
-    if st.button("Create New Ticket"):
-        st.session_state.menu = "Create Ticket"
-        st.rerun()
+    
+    with col2:
+        with st.expander("Delete Ticket"):
+            ticket_options = {f"{t['id']} - {t['title']}": t['id'] for t in tickets}
+            selected_ticket_del = st.selectbox(
+                "Select a Ticket to Delete",
+                list(ticket_options.keys())
+            )
+            if selected_ticket_del == None:
+                st.info("No tickets available to delete")
+            else:
+                ticket_id_del = ticket_options[selected_ticket_del]
+                if st.button("Delete Ticket"):
+                    try:
+                        res_del = requests.delete(f"{BASE_URL}/tickets/{ticket_id_del}", headers=headers)
+                        if res_del.status_code == 200:
+                            st.success(f"Ticket {ticket_id_del} deleted successfully")
+                            st.rerun()
+                        else:
+                            st.error(res_del.text)
+                    except Exception as e:
+                        st.error(f"Failed to delete ticket: {e}")
+    col3, col4 = st.columns(2)
+    with col3:
+        flag4 = st.button("Update Ticket")
+        if flag4 :
+            st.session_state.menu = "Update Ticket"
+            st.rerun()
+    with col4:
+        if st.button("Create New Ticket"):
+            st.session_state.menu = "Create Ticket"
+            st.rerun()
 
 
 # -------------------------------
@@ -364,9 +385,7 @@ elif menu == "Create Ticket":
     params = {}
     params['role'] = 'agent'
     with st.form("ticket_form"):
-        # customer_id = st.number_input("Customer ID", min_value=1 , value=st.session_state.get("filter_customer_id", 1))
-        # customer_id = st.selectbox("Customer", options=list(st.session_state.customer_data.keys()), format_func=lambda x: f"{x} - {st.session_state.customer_data[x]}",index = (len(st.session_state.customer_data) - int(st.session_state.get("filter_customer_id", 5))))
-        # customer_id = st.selectbox("Customer", options=list(st.session_state.customer_data.keys()), format_func=lambda x: f"{x} - {st.session_state.customer_data[x]}",index = 0 if not st.session_state.get("filter_customer_id", None) else list(st.session_state.customer_data.keys()).index(st.session_state.get("filter_customer_id")))
+        
         customer_id = st.selectbox("Customer", options=st.session_state.customers, format_func=lambda x: f"{x['id']} - {x['name']} - {x['email']}", index=0 if not st.session_state.get("filter_customer_id", None) else next((i for i, c in enumerate(st.session_state.customers) if c['id'] == st.session_state.get("filter_customer_id")), 0)).get('id')
         
         title = st.text_input("Title")
@@ -409,10 +428,12 @@ elif menu == "Create Ticket":
                 "title": title,
                 "description": desc,
                 "priority": priority,
-                "assigned_to": assigned_to_id
+                "assigned_to": assigned_to_id,
+                
             }
             
-            r = requests.post(f"{BASE_URL}/tickets", json=payload, headers=headers)
+            r = requests.post(f"{BASE_URL}/tickets", json=payload,params = {'user_id':st.session_state.user['id']} , headers=headers)
+
             if r.status_code == 201:
                 st.success("Ticket created")
                 st.session_state.menu = "Tickets"
@@ -524,7 +545,7 @@ elif menu == "Update Ticket":
             params['role'] = 'agent'
             ticket_id = ticket_options[selected_ticket]
             params['ticket_id'] = ticket_id
-            res = requests.get(f"{BASE_URL}/tickets", params=params, headers=headers)
+            res = requests.get(f"{BASE_URL}/tickets", params=params,headers=headers)
             ticket = res.json()
             for t in ticket:
                 status_current = t['status']
@@ -559,7 +580,7 @@ elif menu == "Update Ticket":
                 else:
                     r = requests.put(
                         f"{BASE_URL}/tickets/{ticket_id}/update",
-                        json={"status": new_status, "assigned_to": assigned_to_id},
+                        json={"status": new_status, "assigned_to": assigned_to_id,"user_name": st.session_state.user['id']},
                         headers=headers
                     )
                     if r.status_code == 200:
@@ -640,3 +661,61 @@ elif menu == 'Delete Admin/Agent':
                         st.error(res_del.text)
             except Exception as e:
                 st.error(f"Failed to delete agent: {e}")
+
+elif menu == "Ticket Detail":
+    ticket_id = st.session_state.ticket_id
+    st.write(ticket_id)
+
+    if ticket_id is None:
+        st.error("No ticket selected.")
+    else:    
+        res = requests.get(
+            f"{BASE_URL}/tickets/{ticket_id}/detail",
+            headers=headers
+        )
+
+        if res.status_code != 200:
+            st.error(f"Failed to load ticket detail ({res.status_code})")
+            st.text(res.text)
+            st.stop()
+
+        try:
+            data = res.json()
+        except ValueError:
+            st.error("Invalid response from server (not JSON)")
+            st.text(res.text)
+            st.stop()
+
+        ticket = data["ticket"]
+        history = data["history"]
+
+        st.header(f"🎫 Ticket #{ticket['id']} – {ticket['title']}")
+
+        # Current state
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Status", ticket["status"])
+        col2.metric("Priority", ticket["priority"])
+        col3.metric("Assigned To", ticket["assigned_name"] or "Unassigned")
+
+        st.write("---")
+
+        # Timeline
+        st.subheader("📜 Ticket Journey")
+
+        for h in history:
+            # st.markdown(f"""
+            # **{h['action']}**  
+            # 🔄 `{h['old_value']}` → `{h['new_value']}`  
+            # 👤 By: **{h['action_by_name']}**  
+            # 🕒 {h['created_at']}
+            # ---
+            # """)
+            with st.expander(f"Action: {h['action']} | By: {h['action_by_name']} | At: {h['created_at']}"):
+                st.markdown(f"""
+                **{h['action']}**  
+                🔄 `{h['old_value']}` → `{h['new_value']}`  
+                👤 By: **{h['action_by_name']}**  
+                🕒 {h['created_at']}
+                
+                """)
+               

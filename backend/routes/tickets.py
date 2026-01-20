@@ -1,10 +1,10 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify,g
 from pydantic import ValidationError
 from schemas.ticket import TicketCreate
 from db import get_db_connection
 from redis_client import delete_cached 
 from routes.auth_middleware import auth_required, admin_required
-
+import streamlit as st
 tickets_bp = Blueprint("tickets", __name__)
 @tickets_bp.route("/tickets", methods=["POST"])
 def create_ticket():
@@ -48,7 +48,7 @@ def create_ticket():
     """
     try:
         data = TicketCreate(**request.json)
-
+        user_id = request.args.get("user_id")
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
 
@@ -71,9 +71,20 @@ def create_ticket():
             data.title,
             data.description,
             data.priority,
-            data.assigned_to
+            data.assigned_to 
         ))
-
+        ticket_id = cursor.lastrowid
+        cursor.execute("""
+        INSERT INTO ticket_history
+(ticket_id, action, new_value, action_by)
+VALUES (%s, 'CREATED', 'OPEN', %s)
+""", (ticket_id, user_id))
+        if data.assigned_to!=None:
+            cursor.execute("""
+        INSERT INTO ticket_history
+(ticket_id, action, new_value, action_by)
+VALUES (%s, 'AssignToAgent', %s, %s)
+""", (ticket_id, data.assigned_to, user_id))
         conn.commit()   #  ticket is now saved
 
         # INVALIDATE DASHBOARD CACHE (THIS IS THE LINE)
@@ -208,15 +219,15 @@ def update_ticket_status(ticket_id):
         body = request.json
         new_status = body.get("status")
         assigned_to = body.get("assigned_to")
-
+        current_user_name = body.get("user_name")
         if new_status not in ["OPEN", "IN_PROGRESS", "CLOSED"]:
             return jsonify({"error": "Invalid status"}), 400
 
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
 
-        # Check ticket exists
-        cursor.execute("SELECT status FROM tickets WHERE id = %s", (ticket_id,))
+        # Check ticket exists 
+        cursor.execute("SELECT * FROM tickets WHERE id = %s", (ticket_id,))
         ticket = cursor.fetchone()
 
         if not ticket:
@@ -225,13 +236,26 @@ def update_ticket_status(ticket_id):
         # Optional rule: don't reopen closed ticket
         if ticket["status"] == "CLOSED" and new_status != "CLOSED":
             return jsonify({"error": "Closed tickets cannot be reopened"}), 400
-
+        old_status = ticket["status"]
+        old_assigned_to = ticket["assigned_to"]
         # Update status
         cursor.execute("""
             UPDATE tickets
             SET status = %s, assigned_to = %s
             WHERE id = %s
         """, (new_status, assigned_to, ticket_id))
+        if new_status != old_status:
+          cursor.execute("""
+          INSERT INTO ticket_history
+          (ticket_id, action, old_value, new_value, action_by)
+          VALUES (%s, 'STATUS_CHANGED', %s, %s, %s)
+      """, (ticket_id, old_status, new_status, current_user_name ))
+        if assigned_to != old_assigned_to:
+            cursor.execute("""
+          INSERT INTO ticket_history
+          (ticket_id, action, old_value, new_value, action_by)
+          VALUES (%s, 'ASSIGNED AGENT CHANGED', %s, %s, %s)
+      """, (ticket_id, old_assigned_to, assigned_to, current_user_name ))
 
         conn.commit()
 
@@ -288,13 +312,26 @@ def assign_ticket(ticket_id):
     user = cursor.fetchone()
     if not user or user["role"] != "agent":
         return jsonify({"error": "User must be a valid AGENT"}), 400
+    cursor.execute("""
+        SELECT assigned_to FROM tickets WHERE id = %s
+    """, (ticket_id,))
+    ticket = cursor.fetchone()
 
+    old_agent = ticket["assigned_to"]
     cursor.execute("""
         UPDATE tickets
         SET assigned_to=%s
         WHERE id=%s
     """, (assigned_to, ticket_id))
-
+    # cursor.execute("""
+    #     INSERT INTO ticket_history
+    #     (ticket_id, action, old_value, new_value, action_by)
+    #     VALUES (%s, 'ASSIGNED', %s, %s, %s)
+    # """, (
+    #     ticket_id,
+    #     old_agent,
+    #     assigned_to,
+    # ))
     conn.commit()
     delete_cached("dashboard:summary")
     
@@ -321,3 +358,33 @@ def delete_ticket(id):
     finally:
         cursor.close()
         conn.close()
+
+
+@tickets_bp.route("/tickets/<int:ticket_id>/detail", methods=["GET"])
+def ticket_detail(ticket_id):
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+
+    # Ticket main info
+    cursor.execute("""
+        SELECT t.*, u.name AS assigned_name
+        FROM tickets t
+        LEFT JOIN users u ON t.assigned_to = u.id
+        WHERE t.id = %s
+    """, (ticket_id,))
+    ticket = cursor.fetchone()
+
+    # Ticket history
+    cursor.execute("""
+        SELECT th.*, u.name AS action_by_name
+        FROM ticket_history th
+        LEFT JOIN users u ON th.action_by = u.id
+        WHERE th.ticket_id = %s
+        ORDER BY th.created_at DESC
+    """, (ticket_id,))
+    history = cursor.fetchall()
+
+    return jsonify({
+        "ticket": ticket,
+        "history": history
+    })

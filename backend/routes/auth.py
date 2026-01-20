@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify,g
 from db import get_db_connection
 from passlib.hash import bcrypt
 from schemas.user import UserRegister, UserLogin
@@ -63,15 +63,15 @@ def login():
         cursor = conn.cursor(dictionary=True)
 
         cursor.execute("SELECT * FROM users WHERE email=%s", (data.email,))
-        user = cursor.fetchone()
+        g.user = cursor.fetchone()
 
-        if not user or not bcrypt.verify(data.password, user["password_hash"]):
+        if not g.user or not bcrypt.verify(data.password, g.user["password_hash"]):
             return jsonify({"error": "Invalid credentials"}), 401
 
         token = jwt.encode(
             {
-                "id": user["id"],
-                "role": user["role"],
+                "id": g.user["id"],
+                "role": g.user["role"],
                 "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=8)
             },
             SECRET_KEY,
@@ -79,9 +79,10 @@ def login():
         )
 
         return jsonify({"token": token, "user": {
-        "id": user["id"],
-        "name": user["name"],
-        "role": user["role"]
+        "id": g.user["id"],
+        "name": g.user["name"],
+        "role": g.user["role"],
+        "mail"  : g.user["email"]
     }}), 200
 
     except ValidationError as e:
