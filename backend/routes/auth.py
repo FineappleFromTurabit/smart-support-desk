@@ -6,6 +6,7 @@ from pydantic import ValidationError
 import jwt
 import datetime
 import os
+from redis_client import get_cached, set_cached
 from .auth_middleware import admin_required
 from dotenv import load_dotenv
 load_dotenv()
@@ -77,7 +78,7 @@ def login():
             SECRET_KEY,
             algorithm="HS256"
         )
-
+        set_cached("token", token, ttl=28800)
         return jsonify({"token": token, "user": {
         "id": g.user["id"],
         "name": g.user["name"],
@@ -149,3 +150,26 @@ def delete_user(id):
     finally:
         cursor.close()
         conn.close()
+
+@auth_bp.route("/auth", methods=["GET"])
+def check_auth():
+    """
+    Check if user is authenticated
+    ---
+    tags:
+      - Auth
+    responses:
+      200:
+        description: User is authenticated
+      401:
+        description: User is not authenticated
+    """
+    token = request.headers.get("Authorization")
+    if not token:
+        return jsonify({"error": "Missing token"}), 401
+
+    cached_token = get_cached("token")
+    if cached_token and cached_token == token:
+        return jsonify({"message": "User is authenticated"}), 200
+
+    return jsonify({"error": "Invalid or expired token"}), 401

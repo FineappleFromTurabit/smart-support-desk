@@ -7,6 +7,7 @@ from routes.auth_middleware import auth_required, admin_required
 import streamlit as st
 tickets_bp = Blueprint("tickets", __name__)
 @tickets_bp.route("/tickets", methods=["POST"])
+@auth_required
 def create_ticket():
     """
     Create a new support ticket
@@ -90,7 +91,7 @@ VALUES (%s, 'AssignToAgent', %s, %s)
         # INVALIDATE DASHBOARD CACHE (THIS IS THE LINE)
         delete_cached("dashboard:summary")
 
-        return jsonify({"message": "Ticket created"}), 201
+        return jsonify([{"message": "Ticket created"},{'ticket_id':ticket_id}]), 201
 
     except ValidationError as e:
         return jsonify({"error": e.errors()}), 400
@@ -104,7 +105,10 @@ VALUES (%s, 'AssignToAgent', %s, %s)
             conn.close()
 
 @tickets_bp.route("/tickets", methods=["GET"])
+@auth_required
 def get_tickets():
+    print('------------------------------------------')
+    print('hureeeeeeeeeh')
     """
     Get tickets with optional filters
     ---
@@ -138,7 +142,7 @@ def get_tickets():
         ticket_id = request.args.get("ticket_id")
         assigned_to = request.args.get("assigned_to")
         query = """
-            SELECT id, customer_id, title, priority, status, created_at, updated_at, assigned_to
+            SELECT id, customer_id, title,description, priority, status, created_at, updated_at, assigned_to
             FROM tickets
             WHERE 1=1
         """

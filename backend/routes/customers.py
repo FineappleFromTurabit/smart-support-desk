@@ -54,8 +54,8 @@ def create_customer():
  
         cursor.execute(query, (data.name, data.email, data.company))
         conn.commit()
-
-        return jsonify({"message": "Customer created"}), 201
+        customer_id = cursor.lastrowid
+        return jsonify([{"message": "Customer created"},{'customer_id':customer_id}]), 201
 
     except ValidationError as e:
         return jsonify({"error": e.errors()}), 400
@@ -175,3 +175,4 @@ def delete_customer(id):
         if 'cursor' in locals():
             cursor.close()
             conn.close()
+

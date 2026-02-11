@@ -33,7 +33,7 @@ def admin_required(f):
         token = auth.replace("Bearer ", "")
         try:
             user = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
-            if user["role"] != "admin":
+            if user["role"] != "admin" :
                 return jsonify({"error": "Admin only"}), 403
             request.user = user
         except:

@@ -17,6 +17,8 @@ app.register_blueprint(dashboard_bp)
 app.register_blueprint(customers_bp)
 
 app.register_blueprint(auth_bp)
+
+
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=True,port=8000,host='0.0.0.0')
     

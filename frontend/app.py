@@ -1,7 +1,7 @@
 import streamlit as st
 import requests
 
-BASE_URL = "http://127.0.0.1:5000"
+BASE_URL = "http://127.0.0.1:8000"
 st.set_page_config(page_title="Smart Support Desk", layout="wide")
 st.sidebar.header("𝓢𝓶𝓪𝓻𝓽 𝓢𝓾𝓹𝓹𝓸𝓻𝓽 𝓓𝓮𝓼𝓴")
 
@@ -398,7 +398,7 @@ elif menu == "Create Ticket":
         # agent_name = st.selectbox("Assign To", list(agent_dict.keys()),list)
         
             
-         
+        
         options = [None] + [f"{a['id']}-{a['name']} - {a['email']}" for a in agents]
 
         default_index = (
@@ -432,10 +432,18 @@ elif menu == "Create Ticket":
                 
             }
             
-            r = requests.post(f"{BASE_URL}/tickets", json=payload,params = {'user_id':st.session_state.user['id']} , headers=headers)
+            # r = requests.post(f"{BASE_URL}/tickets", json=payload,params = {'user_id':st.session_state.user['id']} , headers=headers)
+            r = requests.post(f"http://192.168.1.107:8000/sync/tickets/create/direct" ,json = payload, headers=headers)
 
-            if r.status_code == 201:
-                st.success("Ticket created")
+            if r.status_code == 201 or r.status_code == 200:
+                st.success("Ticket created without database backend")
+                
+                # r1 = requests.post(f"http://192.168.1.107:8000/sync/tickets/create?ticket_id={r.json()[1]['ticket_id']}" , headers=headers)
+                # if r1.status_code == 201:
+                #     st.success("Ticket synced to backend service")
+                # else:
+                #     st.error("Failed to sync ticket to backend service")
+
                 st.session_state.menu = "Tickets"
                 st.rerun()
             else:
@@ -524,7 +532,11 @@ elif menu == "Create Customer":
             if r.status_code == 201:
                 st.session_state.filter_customer_id = None #empty the customer filter
                 res = requests.get(f"{BASE_URL}/customers", headers=headers)
-                st.session_state.customers = res.json() if res.status_code == 200 else []
+                if res.status_code == 200:
+                    r1 = requests.post(f"http://192.168.1.107:5000/sync/customers/create?customer_id={r.json()[1]['customer_id']}" , headers=headers)
+                    st.session_state.customers = res.json()  
+                else:
+                    st.session_state.customers = []
                 st.success("Customer created")
                 st.rerun()
             else:
@@ -706,7 +718,7 @@ elif menu == "Ticket Detail":
             # st.markdown(f"""
             # **{h['action']}**  
             # 🔄 `{h['old_value']}` → `{h['new_value']}`  
-            # 👤 By: **{h['action_by_name']}**  
+            # 👤 By: **{h['action_by_name']}**
             # 🕒 {h['created_at']}
             # ---
             # """)
