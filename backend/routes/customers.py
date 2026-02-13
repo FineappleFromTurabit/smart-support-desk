@@ -176,3 +176,38 @@ def delete_customer(id):
             cursor.close()
             conn.close()
 
+
+@customers_bp.route("/customers/mail", methods=["GET"])
+def get_customers_id():
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+
+        query = """
+            SELECT id, name
+            FROM customers
+        """
+
+        params = []
+
+        if "customer_mail" in request.args:
+            query += " WHERE email = %s"
+            params.append(request.args["customer_mail"])
+
+ 
+
+        cursor.execute(query, tuple(params))
+        rows = cursor.fetchall()
+
+
+
+        return jsonify(rows), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+    finally:
+        if "cursor" in locals():
+            cursor.close()
+            conn.close()
+

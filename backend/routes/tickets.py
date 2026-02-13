@@ -107,8 +107,6 @@ VALUES (%s, 'AssignToAgent', %s, %s)
 @tickets_bp.route("/tickets", methods=["GET"])
 @auth_required
 def get_tickets():
-    print('------------------------------------------')
-    print('hureeeeeeeeeh')
     """
     Get tickets with optional filters
     ---
